@@ -63,7 +63,24 @@ function render(){
   var a=el("article",i===0?"lead":"");
   a.append(el("div","tag",s.category),el("h2","",s.title));
   if(s.summary)a.append(el("p","",s.summary));
-  var
+  var m=el("div","meta",s.source+(s.time?", "+ago(s.time)+" · ":" · "));
+  var k=el("a","","Read");k.href=s.link;k.target="_blank";k.rel="noopener";m.appendChild(k);
+  a.append(m);l.appendChild(a)})}
+fetch("/api/news").then(function(r){if(!r.ok)throw 0;return r.json()}).then(function(d){
+ items=d.items;
+ document.getElementById("date").textContent=new Date().toLocaleDateString("en-US",{weekday:"long",year:"numeric",month:"long",day:"numeric"})+", crypto news only";
+ var t=document.getElementById("ticker");t.textContent="";
+ if(d.price){
+  var b=el("span");b.append(el("b","","BTC")," "+money(d.price.btc)+" ",chg(d.price.btcChange));
+  var e=el("span");e.append(el("b","","ETH")," "+money(d.price.eth)+" ",chg(d.price.ethChange));
+  t.append(b,e)}
+ t.append(el("span","","Updated "+new Date(d.updated).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"})));
+ render()
+}).catch(function(){
+ document.getElementById("date").textContent="Couldn’t load the news";
+ document.getElementById("list").textContent="";
+ document.getElementById("list").appendChild(el("div","msg","The news feed didn’t respond. Reload the page in a minute."))});
+if(items.length)render();
 </script>
 </body>
 </html>
