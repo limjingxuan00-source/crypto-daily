@@ -4,15 +4,23 @@
 const FEEDS = [
   { name: "CoinDesk", url: "https://www.coindesk.com/arc/outboundfeeds/rss/" },
   { name: "Cointelegraph", url: "https://cointelegraph.com/rss" },
-  { name: "Decrypt", url: "https://decrypt.co/feed" },
-  { name: "Yahoo Finance", url: "https://finance.yahoo.com/rss/headline?s=BTC-USD" },
+  // Decrypt also publishes AI/tech news, and Yahoo's BTC feed mixes in stock-market stories,
+  // so only crypto-related items are kept from these two (filter: true).
+  { name: "Decrypt", url: "https://decrypt.co/feed", filter: true },
+  { name: "Yahoo Finance", url: "https://finance.yahoo.com/rss/headline?s=BTC-USD", filter: true },
 ];
+
+// A story counts as crypto news if its title or summary mentions one of these.
+const CRYPTO = /crypto|bitcoin|\bbtc\b|ethereum|\beth\b|\bether\b|\bxrp\b|ripple|solana|\bsol\b|blockchain|stablecoin|token|defi|\bnft|web3|on-?chain|altcoin|memecoin|halving|satoshi|coinbase|binance|kraken|tether|usdt|usdc|saylor|microstrategy|\bmstr\b|\bstrc\b|\bdao\b/i;
+// General stock-market roundups that only mention bitcoin in passing.
+const STOCK_ROUNDUP = /dow jones|s&p 500|nasdaq composite|stock market today|stocks to watch/i;
+const isCrypto = (x) => !STOCK_ROUNDUP.test(x.title) && CRYPTO.test(x.title + " " + x.summary);
 
 const CATEGORIES = [
   ["Security", /hack|exploit|breach|stolen|theft|scam|drain|phishing|vulnerab/i],
-  ["Policy", /sec\b|regulat|law|bill|congress|senate|court|ban|tax|etf|approval|lawsuit|government|trump|fed\b/i],
+  ["Policy", /sec\b|regulat|law|\bbills?\b|congress|senate|court|\bban(s|ned)?\b|\btax|etf approv|etf filing|approval|\brules?\b|lawsuit|government|trump|fed\b/i],
   ["Companies", /coinbase|binance|strategy|robinhood|earnings|ipo|stock|shares|acquire|funding|raises|bank/i],
-  ["Tech", /ethereum|solana|layer|upgrade|protocol|blockchain|defi|stablecoin|tokeniz|onchain|ai\b|wallet/i],
+  ["Tech", /ethereum|solana|layer|upgrade|protocol|blockchain|defi|stablecoin|tokeniz|onchain|wallet/i],
   ["Markets", /price|bitcoin|btc|ether|eth\b|rally|drops|surge|liquidat|market|traders|volume/i],
 ];
 
@@ -37,28 +45,32 @@ function parseFeed(xml, source) {
     let summary = decode(tag(it, "description")) || decode(tag(it, "content:encoded"));
     if (summary.length > 240) summary = summary.slice(0, 237).replace(/\s+\S*$/, "") + "…";
     const date = new Date(decode(tag(it, "pubDate")));
-    const text = title + " " + summary;
-    const cat = (CATEGORIES.find(([, re]) => re.test(text)) || ["Markets"])[0];
+    // Categorise on the headline first; fall back to the summary only if the headline matches nothing.
+    const pick = (s) => (CATEGORIES.find(([, re]) => re.test(s)) || [])[0];
+    const cat = pick(title) || pick(summary) || "Markets";
     return { title, link, summary, source, category: cat, time: isNaN(date) ? 0 : date.getTime() };
   }).filter((x) => x.title && x.link);
 }
 
-async function getFeed({ name, url }) {
+async function getFeed({ name, url, filter }) {
   const r = await fetch(url, { headers: { "User-Agent": "CryptoDaily/1.0" }, signal: AbortSignal.timeout(8000) });
   if (!r.ok) throw new Error(`${name} ${r.status}`);
-  return parseFeed(await r.text(), name);
+  const items = parseFeed(await r.text(), name);
+  return filter ? items.filter(isCrypto) : items;
 }
 
 async function getPrice() {
   try {
     const r = await fetch(
-      "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_change=true",
+      "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,ripple,solana&vs_currencies=usd&include_24hr_change=true",
       { signal: AbortSignal.timeout(6000) }
     );
     const d = await r.json();
     return {
       btc: d.bitcoin.usd, btcChange: d.bitcoin.usd_24h_change,
       eth: d.ethereum.usd, ethChange: d.ethereum.usd_24h_change,
+      xrp: d.ripple.usd, xrpChange: d.ripple.usd_24h_change,
+      sol: d.solana.usd, solChange: d.solana.usd_24h_change,
     };
   } catch { return null; }
 }
@@ -82,4 +94,4 @@ module.exports = async (req, res) => {
   });
 };
 module.exports.parseFeed = parseFeed;
-
+module.exports.isCrypto = isCrypto;
